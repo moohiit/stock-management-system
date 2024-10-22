@@ -24,3 +24,5 @@ app.listen(PORT, () => {
   connectDB();
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+export { app };
