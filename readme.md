@@ -120,8 +120,8 @@ This project provides a system for uploading and processing stock data (in CSV f
 - **Error**:
   ```json
   {
-    message: "Error processing CSV file",
-    error: "Missing or incorrect columns"
+    "message": "Error processing CSV file",
+    "error": "Missing or incorrect columns"
   }
   ```
 
