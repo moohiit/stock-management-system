@@ -1,204 +1,167 @@
+# Stock Management System — CSV Stock Data API
 
-# Stock Management System - API Development and MongoDB Integration
-
-This project provides a system for uploading and processing stock data (in CSV format), validating the data, storing it in MongoDB, and offering specific data retrieval APIs with calculations like highest volume, average close, and average VWAP.
-
-## Table of Contents
-1. [Features](#features)
-2. [Technologies Used](#technologies-used)
-3. [Installation](#installation)
-4. [API Endpoints](#api-endpoints)
-   - [Upload CSV and Data Validation](#upload-csv-and-data-validation)
-   - [Calculations and Data Retrieval](#calculations-and-data-retrieval)
-5. [Database Structure](#database-structure)
-6. [Testing and Documentation](#testing-and-documentation)
-7. [Postman Collection](#postman-collection)
-8. [Unit Tests](#unit-tests)
-
----
+A Node.js/Express REST API that ingests stock market data from CSV files, validates and stores it in MongoDB, and exposes analytics endpoints for highest volume, average close price, and average VWAP over date ranges and symbols.
 
 ## Features
 
-1. **Upload CSV File**: Upload stock data in CSV format.
-2. **Data Validation**: Validate the format and content of the CSV file.
-3. **Store in MongoDB**: Save validated records in a MongoDB collection.
-4. **Perform Calculations**: Retrieve stock data and perform calculations like:
-   - Highest Volume
-   - Average Close Price
-   - Average VWAP
-5. **API Queries**: Filter records by date range or symbol.
+- **CSV Upload** — upload stock data via `multipart/form-data` (Multer), with a middleware guard that rejects non-CSV files
+- **Row-Level Validation** — streams the CSV with `csv-parser` and validates each row (date in `YYYY-MM-DD` format, all required numeric fields present and valid); returns a per-row failure report with symbol, date, and reason
+- **MongoDB Storage** — valid rows are normalized (typed numbers, defaults for empty `Trades` / `Deliverable Volume`) and bulk-inserted with Mongoose `insertMany`
+- **Analytics Endpoints** —
+  - Highest volume record within a date range (optionally per symbol)
+  - Average close price for a symbol within a date range
+  - Average VWAP within a date range (optionally per symbol)
+- **Postman Collection** — ready-made requests for every endpoint in `postman/Stock API.postman_collection.json`
+- **Jest Test Setup** — Jest is configured (`npm test`) with a test scaffold at `test/stock.test.js`
 
-## Technologies Used
+## Tech Stack
 
-- **Node.js**
-- **Express.js**
-- **MongoDB & Mongoose**
-- **Multer** for file uploads
-- **CSV-Parser** for parsing CSV files
-- **Postman** for API testing
+- **Node.js** + **Express 4** (ES modules)
+- **MongoDB** + **Mongoose 8**
+- **Multer** — file uploads
+- **csv-parser** — streaming CSV parsing
+- **dotenv**, **cookie-parser**
+- **Jest** — testing
+- **Postman** — API testing collection
 
-## Installation
+## Project Structure
 
-1. Clone the repository:
+```
+stock-management-system/
+├── server.js                  # Express app entry point
+├── controllers/
+│   └── stockController.js     # Upload + analytics request handlers
+├── middleware/
+│   └── csvValidator.js        # Multer setup + CSV mimetype guard
+├── models/
+│   └── stockModel.js          # Stock Mongoose schema
+├── routes/
+│   └── stockRoutes.js         # /api/stocks routes
+├── services/
+│   ├── csvService.js          # Streaming parse, validation, normalization
+│   └── stockService.js        # Insert + aggregation queries
+├── utils/
+│   └── db.js                  # MongoDB connection
+├── test/
+│   └── stock.test.js          # Jest test scaffold
+└── postman/
+    └── Stock API.postman_collection.json
+```
 
-   ```bash
-   git clone https://github.com/moohiit/stock-management-system.git
-   cd stock-management-system
-   ```
+## Getting Started
 
-2. Install dependencies:
+### Prerequisites
 
-   ```bash
-   npm install
-   ```
+- Node.js 18+
+- MongoDB (local or Atlas)
 
-3. Create a `.env` file in the root directory and add your MongoDB URI:
+### Installation
 
-   ```env
-   MONGODB_URI=mongodb://localhost:27017/stockDB
-   PORT=5000
-   ```
+```bash
+git clone https://github.com/moohiit/stock-management-system.git
+cd stock-management-system
+npm install
+```
 
-4. Start the application:
+Create a `.env` file in the project root:
 
-   ```bash
-   npm start
-   ```
+```env
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/stockDB
+```
+
+Start the server:
+
+```bash
+npm start        # nodemon server.js
+```
+
+The API runs at `http://localhost:5000`.
+
+Run tests:
+
+```bash
+npm test
+```
 
 ## API Endpoints
 
-### 1. Upload CSV and Data Validation
+All routes are mounted under `/api/stocks`.
 
-**Endpoint**: `/upload`  
-**Method**: `POST`  
-**Headers**:  
-- `Content-Type: multipart/form-data`
+### 1. Upload CSV
 
-**Description**: This endpoint accepts a CSV file, validates its structure and content, and uploads valid data to MongoDB.
+`POST /api/stocks/upload`
 
-**Expected CSV Columns**:
-- Date, Symbol, Series, Prev Close, Open, High, Low, Last, Close, VWAP, Volume, Turnover, Trades, Deliverable, %Deliverable
+- **Body:** `multipart/form-data` with field `csvfile` (a `.csv` file)
+- **Expected CSV columns:** `Date, Symbol, Series, Prev Close, Open, High, Low, Last, Close, VWAP, Volume, Turnover, Trades, Deliverable Volume, %Deliverble`
+- **Validation:** `Date` must be `YYYY-MM-DD`; price/volume fields must be numeric; `Trades` may be empty (defaults to 0)
 
-**Validation Rules**:
-- **Date**: Must be in `YYYY-MM-DD` format.
-- **Numerical Fields**: Fields like `Prev Close`, `Open`, `High`, `Low`, etc., must be numbers.
+**Success response:**
 
-**Response**:
-- **Success**:
-  ```json
-  {
-    "message": "Data successfully saved in the database.",
-    "success": true,
-    "totalRecords": 5306,
-    "successfulRecords": 4797,
-    "failedRecordsCount": 509,
-    "failedRecords": [
-        {
-            "symbol": "BPCL",
-            "date": "2000-01-03",
-            "reason": "Some column records are missing"
-        },
-        {
-            "symbol": "BPCL",
-            "date": "2000-01-10",
-            "reason": "Some column records are missing"
-        },
-        {
-            "symbol": "BPCL",
-            "date": "2000-01-11",
-            "reason": "Some column records are missing"
-        },
-        {
-            "symbol": "BPCL",
-            "date": "2000-01-12",
-            "reason": "Some column records are missing"
-        },
-        ... so on
-      ]
-  }
-  ```
-- **Error**:
-  ```json
-  {
-    "message": "Error processing CSV file",
-    "error": "Missing or incorrect columns"
-  }
-  ```
-
-### 2. Calculations and Data Retrieval
-
-#### API 1: Get Highest Volume
-
-**Endpoint**: `/api/highest_volume`  
-**Method**: `GET`  
-**Parameters**:
-- `start_date`: Start date of the range (`YYYY-MM-DD`).
-- `end_date`: End date of the range (`YYYY-MM-DD`).
-- `symbol` (optional): Filter by stock symbol.
-
-**Description**: Returns the record(s) with the highest volume within the specified date range or for the given symbol.
-
-**Response**:
 ```json
 {
-  "highest_volume": {
-    "date": "YYYY-MM-DD",
-    "symbol": "ULTRACEMCO",
-    "volume": 1000000
-  }
+  "message": "Data successfully saved in the database.",
+  "success": true,
+  "totalRecords": 5306,
+  "successfulRecords": 4797,
+  "failedRecordsCount": 509,
+  "failedRecords": [
+    { "symbol": "BPCL", "date": "2000-01-03", "reason": "Some column records are missing" }
+  ]
 }
 ```
 
-#### API 2: Get Average Close Price
+### 2. Highest Volume
 
-**Endpoint**: `/api/average_close`  
-**Method**: `GET`  
-**Parameters**:
-- `start_date`: Start date of the range (`YYYY-MM-DD`).
-- `end_date`: End date of the range (`YYYY-MM-DD`).
-- `symbol`: Stock symbol to filter.
+`GET /api/stocks/highest-volume?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD[&symbol=SYMBOL]`
 
-**Description**: Calculates and returns the average closing price for the specified symbol within the given date range.
+Returns the record with the highest trading volume in the range (optionally filtered by symbol).
 
-**Response**:
 ```json
 {
-  "average_close": {
-        "symbol": "MUNDRAPORT",
-        "average": 456.7691593352886
-    }
+  "message": "Data fetched successfully.",
+  "success": true,
+  "highest_volume": { "date": "2015-03-05", "symbol": "ULTRACEMCO", "volume": 1000000 }
 }
 ```
 
-#### API 3: Get Average VWAP
+### 3. Average Close Price
 
-**Endpoint**: `/api/average_vwap`  
-**Method**: `GET`  
-**Parameters**:
-- `start_date`: Start date of the range (`YYYY-MM-DD`).
-- `end_date`: End date of the range (`YYYY-MM-DD`).
-- `symbol` (optional): Filter by stock symbol.
+`GET /api/stocks/average-close?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&symbol=SYMBOL`
 
-**Description**: Calculates and returns the average VWAP for the specified symbol or within the given date range.
+Returns the average closing price for the given symbol in the range.
 
-**Response**:
 ```json
 {
-  "average_VWAP": {
-        "symbol": "MUNDRAPORT",
-        "average": 458.52812316715546
-    }
+  "message": "Data fetched successfully.",
+  "success": true,
+  "average_close": { "symbol": "MUNDRAPORT", "average": 456.7691593352886 }
 }
 ```
 
-### Query Examples:
-- `/api/highest_volume?start_date=2024-01-01&end_date=2024-12-31`
-- `/api/average_close?start_date=2024-01-01&end_date=2024-12-31&symbol=ULTRACEMCO`
-- `/api/average_vwap?symbol=ULTRACEMCO`
+### 4. Average VWAP
+
+`GET /api/stocks/average-vwap?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD[&symbol=SYMBOL]`
+
+Returns the average VWAP in the range (optionally filtered by symbol).
+
+```json
+{
+  "message": "Data fetched successfully.",
+  "success": true,
+  "average_VWAP": { "symbol": "MUNDRAPORT", "average": 458.52812316715546 }
+}
+```
+
+### Query Examples
+
+- `/api/stocks/highest-volume?start_date=2008-11-27&end_date=2021-04-30&symbol=MUNDRAPORT`
+- `/api/stocks/average-close?start_date=2007-11-27&end_date=2021-04-30&symbol=MUNDRAPORT`
+- `/api/stocks/average-vwap?start_date=2007-11-27&end_date=2021-04-30`
 
 ## Database Structure
 
-Each stock entry is stored as a document in the `stock_data` collection with the following structure:
+Each stock entry is stored as a document via the `Stock` model:
 
 ```json
 {
@@ -213,31 +176,22 @@ Each stock entry is stored as a document in the `stock_data` collection with the
   "close": 260.0,
   "vwap": 268.8,
   "volume": 6633956,
-  "turnover": 1.78E14,
+  "turnover": 1.78e14,
   "trades": 133456,
   "deliverable": 970249,
   "percent_deliverable": 0.1463
 }
 ```
 
-## Testing and Documentation
-
-1. **Postman**: A Postman collection has been created for testing all APIs.
-2. **Documentation**: The APIs are documented with descriptions, parameters, and expected responses.
-3. **Unit Testing**: Jest is used for unit tests, ensuring validation logic and calculations are correct.
-
 ## Postman Collection
 
-A Postman collection is provided with pre-configured requests to test each API. Follow these steps to test the endpoints:
-1. Import the Postman collection file.
-2. First test the upload csv API by changing the file.
-3. Change the parameters accordingly to the file uploaded.
-4. Run each API request to check the functionality of the system.
+Import `postman/Stock API.postman_collection.json` into Postman:
 
-## Unit Tests
+1. Set the `server` variable to your API base URL (e.g. `http://localhost:5000`).
+2. Run the upload request first with your CSV file.
+3. Adjust the query parameters (dates, symbol) to match the uploaded data.
+4. Run the analytics requests to verify the calculations.
 
-- **Validation Logic**: Test to ensure correct validation of CSV data.
-- **Calculations**: Test the accuracy of calculations like highest volume, average close, and average VWAP.
+---
 
-
-
+**Author:** Mohit Patel — [mohitpatel.org](https://mohitpatel.org) · GitHub [@moohiit](https://github.com/moohiit)
